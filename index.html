@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Campus Eats Ledger</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#16232A; --paper:#F3EEDF; --paper-dim:#E9E2CE;
+    --mustard:#E3A73E; --rust:#C0503B; --sage:#4F8B6B; --muted:#8A9199;
+    --line: rgba(22,35,42,0.12);
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{font-family:'Inter',sans-serif; background:var(--ink); color:var(--ink); overflow:hidden;}
+  #map{position:absolute;inset:0;z-index:0;}
+  .leaflet-tile{filter:saturate(0.75) brightness(0.97);}
+
+  .topbar{
+    position:absolute; top:0; left:0; right:0; z-index:500;
+    padding:14px 14px 0 14px; display:flex; flex-direction:column; gap:8px;
+    pointer-events:none;
+  }
+  .topbar > *{pointer-events:auto;}
+  .brand{
+    display:flex; align-items:center; gap:8px;
+    font-family:'Space Grotesk',sans-serif; font-weight:700;
+    color:var(--paper); font-size:15px; letter-spacing:0.02em;
+    text-shadow:0 1px 3px rgba(0,0,0,0.5);
+  }
+  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--mustard);}
+  .searchrow{ display:flex; gap:8px; }
+  .searchbox{
+    flex:1; display:flex; align-items:center; gap:8px;
+    background:var(--paper); border-radius:12px; padding:10px 12px;
+    box-shadow:0 3px 10px rgba(0,0,0,0.25); min-width:0;
+  }
+  .searchbox input{ border:none; outline:none; background:none; flex:1; min-width:0; font-family:'Inter'; font-size:14px; color:var(--ink); }
+  .searchbox svg{flex-shrink:0; opacity:0.55;}
+  .searchbox button{
+    border:none; background:var(--ink); color:var(--paper); border-radius:8px;
+    padding:6px 10px; font-size:12px; font-family:'Space Grotesk'; font-weight:700;
+    cursor:pointer; flex-shrink:0;
+  }
+  .iconbtn{
+    width:40px;height:40px;border-radius:12px;border:none;
+    background:var(--paper); box-shadow:0 3px 10px rgba(0,0,0,0.25);
+    display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0;
+  }
+  .iconbtn:active{transform:scale(0.94);}
+  .profilebtn{
+    width:40px;height:40px;border-radius:50%;border:2px solid var(--paper);
+    background:var(--mustard); color:var(--ink); font-family:'Space Grotesk'; font-weight:700;
+    font-size:15px; display:flex; align-items:center; justify-content:center;
+    cursor:pointer; flex-shrink:0; box-shadow:0 3px 10px rgba(0,0,0,0.25);
+  }
+
+  .fab{
+    position:absolute; right:16px; bottom:22px; z-index:500;
+    width:56px;height:56px;border-radius:50%; background:var(--mustard); border:none; color:var(--ink);
+    font-size:28px; line-height:1; font-weight:600; box-shadow:0 6px 16px rgba(0,0,0,0.35);
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  .fab.active{background:var(--rust); color:var(--paper); transform:rotate(45deg);}
+  .fab:active{transform:scale(0.93);}
+  .fab.active:active{transform:rotate(45deg) scale(0.93);}
+
+  .hint{
+    position:absolute; left:50%; bottom:92px; transform:translateX(-50%);
+    background:var(--ink); color:var(--paper); font-size:13px; padding:8px 14px; border-radius:20px;
+    white-space:nowrap; z-index:500; box-shadow:0 4px 12px rgba(0,0,0,0.3); font-family:'Inter';
+  }
+
+  .badge{
+    width:34px;height:34px;border-radius:50%; display:flex;align-items:center;justify-content:center;
+    font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:12px;
+    color:var(--paper); border:2.5px solid var(--paper); box-shadow:0 2px 6px rgba(0,0,0,0.4);
+  }
+  .badge.new{background:var(--muted);}
+
+  .sheet{
+    position:absolute; left:0; right:0; bottom:0; z-index:900; background:var(--paper);
+    border-radius:20px 20px 0 0; box-shadow:0 -8px 24px rgba(0,0,0,0.35);
+    max-height:82vh; display:flex; flex-direction:column;
+    transform:translateY(105%); transition:transform 0.28s ease;
+  }
+  .sheet.open{transform:translateY(0);}
+  .sheet-handle{ width:40px;height:4px;background:var(--line); border-radius:3px; margin:10px auto 4px; }
+  .sheet-head{ padding:6px 20px 12px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
+  .sheet-title{ font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:20px; }
+  .sheet-sub{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--muted); margin-top:2px;}
+  .place-type-chip{
+    display:inline-block; margin-top:5px; font-size:10px; font-family:'IBM Plex Mono';
+    padding:2px 7px; border-radius:5px; background:var(--paper-dim); color:var(--ink); letter-spacing:0.03em;
+  }
+  .sheet-body{overflow-y:auto; padding:10px 20px 24px; flex:1;}
+  .ghost-btn{
+    border:1px solid var(--line); background:none; border-radius:8px; padding:6px 10px;
+    font-size:12px; font-family:'Inter'; color:var(--ink); cursor:pointer; flex-shrink:0;
+  }
+  .dish-group{ border-bottom:1px solid var(--line); padding:4px 0; }
+  .dish-group summary{
+    list-style:none; cursor:pointer; display:flex; align-items:center; gap:10px; padding:10px 0;
+  }
+  .dish-group summary::-webkit-details-marker{display:none;}
+  .dish-group summary .chev{ font-size:11px; color:var(--muted); transition:transform 0.15s; flex-shrink:0; width:12px; }
+  .dish-group[open] summary .chev{ transform:rotate(90deg); }
+  .dish-group-name{ font-weight:600; font-size:15px; flex:1; min-width:0; }
+  .dish-group-count{ font-family:'IBM Plex Mono'; font-size:11px; color:var(--muted); flex-shrink:0; }
+  .dish-group-score{
+    font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:13px;
+    padding:2px 8px; border-radius:6px; color:var(--paper); flex-shrink:0;
+  }
+  .dish{ padding:10px 0 10px 22px; border-top:1px dashed var(--line); display:flex; flex-direction:column; gap:4px; }
+  .dish-top{display:flex; justify-content:space-between; align-items:center; gap:8px;}
+  .dish-date{font-family:'IBM Plex Mono'; font-size:11px; color:var(--muted);}
+  .dish-score{
+    font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:13px;
+    padding:2px 8px; border-radius:6px; color:var(--paper); flex-shrink:0;
+  }
+  .dish-tags{display:flex; gap:6px; flex-wrap:wrap;}
+  .chip{ font-size:10px; font-family:'IBM Plex Mono'; padding:2px 7px; border-radius:5px; background:var(--paper-dim); color:#4b555b; letter-spacing:0.02em; }
+  .chip.profile{ background:var(--ink); color:var(--paper); }
+  .dish-comment{font-size:13px; color:#4b555b; line-height:1.4;}
+  .dish-actions{display:flex; gap:10px; margin-top:2px;}
+  .dish-actions button{ border:none; background:none; font-size:12px; color:var(--muted); cursor:pointer; font-family:'Inter'; padding:0; }
+  .dish-actions button:hover{color:var(--rust);}
+  .add-again-btn{
+    margin:6px 0 6px 22px; padding:6px 10px; border-radius:8px; border:1px dashed var(--muted);
+    background:none; color:var(--ink); font-family:'Inter'; font-size:12px; cursor:pointer;
+  }
+  .add-dish-btn{
+    width:100%; margin-top:10px; padding:12px; border-radius:12px; border:1.5px dashed var(--muted);
+    background:none; color:var(--ink); font-family:'Space Grotesk'; font-weight:700; font-size:14px; cursor:pointer;
+  }
+  .empty{color:var(--muted); font-size:13px; padding:14px 0; text-align:center;}
+  .stat-strip{ display:flex; gap:8px; flex-wrap:wrap; padding:10px 0; border-bottom:1px solid var(--line); margin-bottom:4px; }
+  .stat-pill{ background:var(--paper-dim); border-radius:10px; padding:8px 10px; flex:1; min-width:80px; text-align:center; }
+  .stat-pill .num{ font-family:'IBM Plex Mono'; font-weight:600; font-size:16px; }
+  .stat-pill .lbl{ font-size:10px; color:var(--muted); margin-top:2px; }
+
+  .form{padding:14px 0;}
+  .form label{display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; font-family:'IBM Plex Mono';}
+  .form input, .form select, .form textarea{
+    width:100%; border:1px solid var(--line); border-radius:8px; padding:9px 10px;
+    font-family:'Inter'; font-size:14px; background:#fff; outline:none;
+  }
+  .form textarea{resize:vertical; min-height:50px;}
+  .form-row{display:flex; gap:10px;}
+  .form-row > div{flex:1;}
+  .stars{display:flex; gap:6px; margin-top:2px;}
+  .star{font-size:26px; cursor:pointer; color:var(--line); user-select:none;}
+  .star.on{color:var(--mustard);}
+  .form-actions{display:flex; gap:10px; margin-top:14px;}
+  .btn{ flex:1; padding:11px; border-radius:10px; border:none; font-family:'Space Grotesk'; font-weight:700; font-size:14px; cursor:pointer; }
+  .btn.primary{background:var(--ink); color:var(--paper);}
+  .btn.secondary{background:none; border:1px solid var(--line); color:var(--ink);}
+  .btn.danger{background:var(--rust); color:var(--paper);}
+  .logging-as{ font-size:12px; color:var(--muted); font-family:'IBM Plex Mono'; margin-top:2px; }
+
+  .panel{
+    position:absolute; inset:0; z-index:800; background:var(--paper);
+    display:flex; flex-direction:column; transform:translateX(105%); transition:transform 0.25s ease;
+  }
+  .panel.open{transform:translateX(0);}
+  .panel-head{ padding:16px 18px 12px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--line); }
+  .panel-head h2{font-family:'Space Grotesk'; margin:0; font-size:19px;}
+  .panel-list{flex:1; overflow-y:auto; padding:8px 18px 24px;}
+  .filters{ display:flex; gap:8px; padding:12px 18px 0; flex-wrap:wrap; }
+  .filters select{
+    border:1px solid var(--line); border-radius:8px; padding:7px 8px; font-size:12px;
+    font-family:'IBM Plex Mono'; background:#fff; color:var(--ink);
+  }
+  .rank-row{ display:flex; align-items:center; gap:12px; padding:11px 0; border-bottom:1px solid var(--line); cursor:pointer; }
+  .rank-score{
+    width:36px;height:36px;border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center;
+    font-family:'IBM Plex Mono'; font-weight:600; font-size:13px; color:var(--paper);
+  }
+  .rank-info{flex:1; min-width:0;}
+  .rank-dish{font-weight:600; font-size:14px;}
+  .rank-place{font-size:12px; color:var(--muted);}
+  .rank-count{font-family:'IBM Plex Mono'; font-size:11px; color:var(--muted); flex-shrink:0;}
+
+  .settings-item{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 0; border-bottom:1px solid var(--line); }
+  .settings-item .label{font-weight:600; font-size:14px;}
+  .settings-item .desc{font-size:12px; color:var(--muted); margin-top:2px;}
+  .profile-row{ display:flex; align-items:center; justify-content:space-between; padding:8px 0; }
+  .profile-row .pname{ font-weight:600; font-size:13px; display:flex; align-items:center; gap:6px; }
+  .profile-row .active-tag{ font-size:9px; font-family:'IBM Plex Mono'; background:var(--sage); color:var(--paper); padding:1px 6px; border-radius:5px; }
+
+  .modal-overlay{
+    position:absolute; inset:0; z-index:1000; background:rgba(22,35,42,0.5);
+    display:flex; align-items:flex-end; justify-content:center; opacity:0; pointer-events:none; transition:opacity 0.2s;
+  }
+  .modal-overlay.open{opacity:1; pointer-events:auto;}
+  .modal-box{
+    background:var(--paper); border-radius:18px 18px 0 0; width:100%; max-width:480px;
+    padding:20px 20px 26px; max-height:80vh; overflow-y:auto; transform:translateY(20px); transition:transform 0.2s;
+  }
+  .modal-overlay.open .modal-box{transform:translateY(0);}
+  .modal-title{font-family:'Space Grotesk'; font-weight:700; font-size:18px; margin-bottom:2px;}
+  .profile-chip-pick{
+    display:inline-flex; align-items:center; gap:6px; padding:8px 12px; border-radius:20px;
+    border:1.5px solid var(--line); margin:4px 6px 4px 0; cursor:pointer; font-size:13px; font-family:'Inter';
+  }
+  .profile-chip-pick.current{ background:var(--ink); color:var(--paper); border-color:var(--ink); }
+
+  .toast{
+    position:absolute; left:50%; top:16px; transform:translateX(-50%);
+    background:var(--ink); color:var(--paper); padding:9px 16px; border-radius:20px;
+    font-size:13px; z-index:1100; opacity:0; transition:opacity 0.25s; pointer-events:none; text-align:center; max-width:80%;
+  }
+  .toast.show{opacity:1;}
+  #importFile{display:none;}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="topbar">
+  <div class="brand"><span class="dot"></span>Campus Eats Ledger</div>
+  <div class="searchrow">
+    <button class="profilebtn" id="profileBtn" title="Switch profile">M</button>
+    <div class="searchbox">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="locSearch" placeholder="Search a place or address…" />
+      <button id="searchGo">Go</button>
+    </div>
+    <button class="iconbtn" id="homeBtn" title="Recenter">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16232A" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+    </button>
+    <button class="iconbtn" id="rankBtn" title="Rankings">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16232A" stroke-width="2"><path d="M12 20V10M18 20V4M6 20v-4"/></svg>
+    </button>
+    <button class="iconbtn" id="settingsBtn" title="Settings & backup">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16232A" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 005 15a1.65 1.65 0 00-1.51-1H3.5a2 2 0 010-4h.09A1.65 1.65 0 005 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019 9a1.65 1.65 0 001.51 1H20.5a2 2 0 010 4h-.09A1.65 1.65 0 0019.4 15z"/></svg>
+    </button>
+  </div>
+</div>
+
+<div class="hint" id="hint" style="display:none;">Tap anywhere on the map to drop a pin there</div>
+<button class="fab" id="fab">+</button>
+
+<div class="sheet" id="sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-head">
+    <div>
+      <div class="sheet-title" id="sheetTitle">Place</div>
+      <div class="sheet-sub" id="sheetSub"></div>
+      <div class="place-type-chip" id="sheetType"></div>
+    </div>
+    <button class="ghost-btn" id="deletePlaceBtn">Delete place</button>
+    <button class="iconbtn" id="closeSheetBtn" style="width:32px;height:32px;border-radius:8px;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16232A" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body" id="sheetBody"></div>
+</div>
+
+<div class="panel" id="rankPanel">
+  <div class="panel-head">
+    <h2>Rankings</h2>
+    <button class="iconbtn" id="closeRank">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16232A" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+  <div class="panel-list">
+    <div class="stat-strip" id="statStrip"></div>
+    <div class="filters" id="filterRow">
+      <select id="fSort"><option value="rating">Sort: Rating</option><option value="times">Sort: Times eaten</option><option value="recent">Sort: Most recent</option></select>
+      <select id="fRating"><option value="0">Any rating</option><option value="4.5">4.5+</option><option value="4">4+</option><option value="3">3+</option><option value="2">2+</option></select>
+      <select id="fMeal"><option value="">Any meal tag</option></select>
+      <select id="fType"><option value="">Any place type</option></select>
+      <select id="fPrice"><option value="">Any price</option></select>
+      <select id="fProfile"><option value="">Anyone</option></select>
+    </div>
+    <div id="rankList"></div>
+  </div>
+</div>
+
+<div class="panel" id="settingsPanel">
+  <div class="panel-head">
+    <h2>Settings & backup</h2>
+    <button class="iconbtn" id="closeSettings">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16232A" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+  <div class="panel-list">
+    <div class="settings-item" style="flex-direction:column; align-items:stretch;">
+      <div style="margin-bottom:8px;"><div class="label">Profiles</div><div class="desc">Add a profile for each person using this app on this device. The active one gets tagged on new entries you log.</div></div>
+      <div id="profileList"></div>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <input id="newProfileInput" placeholder="Add a name" style="flex:1; border:1px solid var(--line); border-radius:8px; padding:9px 10px; font-family:'Inter'; font-size:14px;" />
+        <button class="ghost-btn" id="addProfileBtn">Add</button>
+      </div>
+    </div>
+    <div class="settings-item">
+      <div><div class="label">Export backup</div><div class="desc">Save all your places and dishes as a .json file</div></div>
+      <button class="ghost-btn" id="exportBtn">Export</button>
+    </div>
+    <div class="settings-item">
+      <div><div class="label">Import backup</div><div class="desc">Restore from a previously exported file</div></div>
+      <button class="ghost-btn" id="importBtn">Import</button>
+      <input type="file" id="importFile" accept="application/json" />
+    </div>
+    <div class="settings-item">
+      <div><div class="label">Recenter</div><div class="desc">Jump back to the starting location</div></div>
+      <button class="ghost-btn" id="homeBtn2">Go</button>
+    </div>
+    <div class="settings-item">
+      <div><div class="label">Set as home</div><div class="desc">Use the map's current position as the starting location from now on</div></div>
+      <button class="ghost-btn" id="setHomeBtn">Set here</button>
+    </div>
+    <div class="settings-item" id="storageUsageRow">
+      <div><div class="label">Storage used</div><div class="desc" id="storageUsageDesc">Calculating…</div></div>
+    </div>
+    <div class="settings-item" style="flex-direction:column; align-items:stretch;">
+      <div style="margin-bottom:8px;"><div class="label">English map labels</div><div class="desc">Paste a free MapTiler API key to show streets & places in English with full zoom. Get one at cloud.maptiler.com/account/keys (no card needed). This only works once the app is hosted on its own URL, not inside a Claude chat preview.</div></div>
+      <div style="display:flex; gap:8px;">
+        <input id="mapTilerKeyInput" placeholder="Paste MapTiler API key" style="flex:1; border:1px solid var(--line); border-radius:8px; padding:9px 10px; font-family:'IBM Plex Mono'; font-size:13px;" />
+        <button class="ghost-btn" id="saveMapTilerKey">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-box" id="modalBox"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.maptiler.com/maptiler-sdk-js/v3.0.0/maptiler-sdk.umd.min.js"></script>
+<link href="https://cdn.maptiler.com/maptiler-sdk-js/v3.0.0/maptiler-sdk.css" rel="stylesheet" />
+<script src="https://cdn.maptiler.com/leaflet-maptilersdk/v3.0.0/leaflet-maptilersdk.js"></script>
+<script>
+const STORAGE_KEY = 'campus-eats-data-v3';
+// Best estimate for Fudan Beiyuan international student dormitory (57 Wudong Rd),
+// north of the main Handan Campus gate — nudge the pin once you spot the real building.
+const START_LOCATION = { lat: 31.3066, lng: 121.5043 };
+const PLACE_TYPES = ['Canteen','Restaurant','Cafe','Snack stall','Other'];
+const MEAL_TAGS = ['Breakfast','Lunch','Dinner','Snack','Dessert','Drink'];
+const PRICE_RANGES = [
+  {label:'¥0–5', min:0, max:5}, {label:'¥5–10', min:5, max:10}, {label:'¥10–15', min:10, max:15},
+  {label:'¥15–20', min:15, max:20}, {label:'¥20–25', min:20, max:25}, {label:'¥25–30', min:25, max:30},
+  {label:'¥30–35', min:30, max:35}, {label:'¥35–40', min:35, max:40}, {label:'¥40–50', min:40, max:50},
+  {label:'¥50+', min:50, max:Infinity}
+];
+
+let data = { center: START_LOCATION, zoom: 17, places: [], mapTilerKey: null, profiles: ['Me'], activeProfile: 'Me', homeLocation: null };
+let map, addMode = false, currentPlaceId = null;
+const markers = {};
+
+function ratingColor(r){
+  if(r >= 4) return getComputedStyle(document.documentElement).getPropertyValue('--sage').trim();
+  if(r >= 2.5) return getComputedStyle(document.documentElement).getPropertyValue('--mustard').trim();
+  return getComputedStyle(document.documentElement).getPropertyValue('--rust').trim();
+}
+function avg(dishes){ if(!dishes.length) return null; return dishes.reduce((s,d)=>s+d.rating,0)/dishes.length; }
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(()=>t.classList.remove('show'), 2400);
+}
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+function escapeHtml(s){ const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+function fmtPrice(p){ return (p===null||p===undefined||p==='') ? '' : `¥${p}`; }
+function fmtDate(iso){ try{ return new Date(iso).toLocaleDateString(undefined,{month:'short',day:'numeric'}); }catch(e){ return ''; } }
+
+/* ---------- Storage (Claude artifact storage, falls back to localStorage when self-hosted) ---------- */
+async function loadData(){
+  if(window.storage){
+    try{
+      const res = await window.storage.get(STORAGE_KEY, false);
+      if(res && res.value) data = Object.assign({}, data, JSON.parse(res.value));
+      return;
+    }catch(e){ return; }
+  }
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw) data = Object.assign({}, data, JSON.parse(raw));
+  }catch(e){ /* unavailable */ }
+}
+async function saveData(){
+  if(window.storage){
+    try{
+      await window.storage.set(STORAGE_KEY, JSON.stringify(data), false);
+      hideStorageBanner();
+      return;
+    }catch(e){
+      console.error('window.storage save failed:', e);
+      showStorageBanner("Not saving right now — open this from inside your Claude chat (logged in), not as a downloaded file, to keep your entries.");
+      return;
+    }
+  }
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    hideStorageBanner();
+  }catch(e){
+    console.error('localStorage save failed:', e);
+    showStorageBanner("Not saving right now — this browser is blocking local storage (common in private/incognito mode). Use Export to back up manually.");
+  }
+}
+function showStorageBanner(message){
+  let b = document.getElementById('storageBanner');
+  if(!b){
+    b = document.createElement('div');
+    b.id = 'storageBanner';
+    b.style.cssText = 'position:absolute;left:0;right:0;bottom:0;z-index:1050;background:#C0503B;color:#F3EEDF;font-size:12.5px;padding:10px 16px;text-align:center;font-family:Inter,sans-serif;';
+    document.body.appendChild(b);
+  }
+  b.textContent = message;
+}
+function hideStorageBanner(){ const b = document.getElementById('storageBanner'); if(b) b.remove(); }
+
+/* ---------- Modal ---------- */
+function openModal(html){
+  document.getElementById('modalBox').innerHTML = html;
+  document.getElementById('modalOverlay').classList.add('open');
+}
+function closeModal(){
+  document.getElementById('modalOverlay').classList.remove('open');
+  document.getElementById('modalBox').innerHTML = '';
+}
+document.getElementById('modalOverlay').addEventListener('click', (e)=>{ if(e.target.id === 'modalOverlay') closeModal(); });
+
+/* ---------- Profiles ---------- */
+function refreshProfileBtn(){
+  const p = data.activeProfile || 'Me';
+  document.getElementById('profileBtn').textContent = p.trim().charAt(0).toUpperCase() || 'M';
+}
+function openProfilePicker(){
+  const chips = data.profiles.map(p=>`<span class="profile-chip-pick${p===data.activeProfile?' current':''}" data-p="${escapeHtml(p)}">${escapeHtml(p)}</span>`).join('');
+  openModal(`
+    <div class="modal-title">Who's logging?</div>
+    <div class="form">
+      <div style="margin:10px 0;">${chips}</div>
+      <label>Add a new profile</label>
+      <div style="display:flex; gap:8px;">
+        <input id="quickNewProfile" placeholder="Name" />
+        <button class="ghost-btn" id="quickAddProfile">Add</button>
+      </div>
+      <div class="form-actions"><button class="btn secondary" id="closeProfilePicker">Close</button></div>
+    </div>
+  `);
+  document.querySelectorAll('.profile-chip-pick').forEach(el=>{
+    el.onclick = ()=>{ data.activeProfile = el.dataset.p; saveData(); refreshProfileBtn(); closeModal(); toast(`Logging as ${el.dataset.p}`); };
+  });
+  document.getElementById('quickAddProfile').onclick = ()=>{
+    const name = document.getElementById('quickNewProfile').value.trim();
+    if(!name) return;
+    if(!data.profiles.includes(name)) data.profiles.push(name);
+    data.activeProfile = name;
+    saveData(); refreshProfileBtn(); renderProfileList();
+    closeModal(); toast(`Logging as ${name}`);
+  };
+  document.getElementById('closeProfilePicker').onclick = closeModal;
+}
+document.getElementById('profileBtn').onclick = openProfilePicker;
+
+function renderProfileList(){
+  const box = document.getElementById('profileList');
+  box.innerHTML = '';
+  data.profiles.forEach(p=>{
+    const row = document.createElement('div');
+    row.className = 'profile-row';
+    row.innerHTML = `
+      <span class="pname">${escapeHtml(p)} ${p===data.activeProfile?'<span class="active-tag">ACTIVE</span>':''}</span>
+      <span style="display:flex; gap:8px;">
+        ${p!==data.activeProfile?`<button class="ghost-btn" data-use="${escapeHtml(p)}">Use</button>`:''}
+        ${data.profiles.length>1?`<button class="ghost-btn" data-rm="${escapeHtml(p)}">Remove</button>`:''}
+      </span>`;
+    box.appendChild(row);
+  });
+  box.querySelectorAll('[data-use]').forEach(b=> b.onclick = ()=>{ data.activeProfile=b.dataset.use; saveData(); refreshProfileBtn(); renderProfileList(); });
+  box.querySelectorAll('[data-rm]').forEach(b=> b.onclick = ()=>{
+    data.profiles = data.profiles.filter(p=>p!==b.dataset.rm);
+    if(data.activeProfile===b.dataset.rm) data.activeProfile = data.profiles[0];
+    saveData(); refreshProfileBtn(); renderProfileList();
+  });
+}
+document.getElementById('addProfileBtn').onclick = ()=>{
+  const input = document.getElementById('newProfileInput');
+  const name = input.value.trim();
+  if(!name) return;
+  if(!data.profiles.includes(name)) data.profiles.push(name);
+  data.activeProfile = name;
+  input.value = '';
+  saveData(); refreshProfileBtn(); renderProfileList();
+};
+
+/* ---------- Map ---------- */
+let baseLayer = null;
+function osmLayer(){
+  return L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+  });
+}
+function setupBaseLayer(){
+  if(baseLayer){ map.removeLayer(baseLayer); baseLayer = null; }
+  const key = data.mapTilerKey;
+  if(key){
+    if(window.L && L.maptiler && L.maptiler.maptilerLayer){
+      try{
+        const lang = (L.MaptilerLanguage && L.MaptilerLanguage.ENGLISH) ? L.MaptilerLanguage.ENGLISH : 'en';
+        baseLayer = new L.maptiler.maptilerLayer({ apiKey: key, language: lang }).addTo(map);
+        if(baseLayer && typeof baseLayer.on === 'function'){
+          baseLayer.on('error', (e)=>{
+            console.error('MapTiler tile/auth error:', e);
+            let detail = 'unknown error';
+            try{
+              if(e && e.error){
+                if(e.error.status === 401 || e.error.status === 403) detail = `key rejected (HTTP ${e.error.status}) — check the key is correct and has no URL/domain restriction blocking this site`;
+                else if(e.error.message) detail = e.error.message;
+                else detail = JSON.stringify(e.error).slice(0,120);
+              }
+            }catch(_){}
+            showStorageBanner(`MapTiler error: ${detail}`);
+          });
+        }
+        return;
+      }catch(e){
+        console.error('MapTiler layer failed:', e);
+        toast("Couldn't load the English map — using OpenStreetMap instead");
+      }
+    } else {
+      toast("English map can't load inside this Claude preview (script restrictions) — it'll work once this file is hosted on its own URL.");
+    }
+  }
+  baseLayer = osmLayer().addTo(map);
+}
+function initMap(){
+  const start = data.center || data.homeLocation || START_LOCATION;
+  map = L.map('map', {zoomControl:false}).setView([start.lat, start.lng], data.zoom || 17);
+  setupBaseLayer();
+  map.on('click', (e)=>{
+    if(addMode) dropNewPin(e.latlng);
+    else if(currentPlaceId) closeSheet();
+  });
+  map.on('moveend', ()=>{
+    const c = map.getCenter();
+    data.center = {lat:c.lat, lng:c.lng};
+    data.zoom = map.getZoom();
+    saveData();
+  });
+  renderAllMarkers();
+}
+function markerIcon(place){
+  const a = avg(place.dishes);
+  const color = a===null ? '#8A9199' : ratingColor(a);
+  const label = a===null ? '+' : a.toFixed(1);
+  return L.divIcon({
+    className:'', html:`<div class="badge${a===null?' new':''}" style="background:${color}">${label}</div>`,
+    iconSize:[34,34], iconAnchor:[17,17]
+  });
+}
+function renderAllMarkers(){
+  Object.values(markers).forEach(m=>map.removeLayer(m));
+  for(const k in markers) delete markers[k];
+  data.places.forEach(p=>{
+    const m = L.marker([p.lat,p.lng], {icon: markerIcon(p)}).addTo(map);
+    m.on('click', ()=> openSheet(p.id));
+    markers[p.id] = m;
+  });
+}
+
+/* ---------- Add place ---------- */
+function dropNewPin(latlng){
+  toggleAddMode(false);
+  const typeOptions = PLACE_TYPES.map(t=>`<option value="${t}">${t}</option>`).join('');
+  openModal(`
+    <div class="modal-title">New place</div>
+    <div class="form">
+      <label>Name</label>
+      <input id="newPlaceName" placeholder="e.g. South Canteen" autofocus />
+      <label>Type</label>
+      <select id="newPlaceType">${typeOptions}</select>
+      <div class="form-actions">
+        <button class="btn secondary" id="cancelPlace">Cancel</button>
+        <button class="btn primary" id="savePlace">Drop pin</button>
+      </div>
+    </div>
+  `);
+  document.getElementById('cancelPlace').onclick = closeModal;
+  document.getElementById('savePlace').onclick = ()=>{
+    const name = document.getElementById('newPlaceName').value.trim();
+    if(!name){ toast('Give the place a name'); return; }
+    const type = document.getElementById('newPlaceType').value;
+    const place = { id: uid(), name, type, lat: latlng.lat, lng: latlng.lng, dishes: [] };
+    data.places.push(place);
+    saveData(); renderAllMarkers(); closeModal(); openSheet(place.id);
+  };
+}
+function toggleAddMode(force){
+  addMode = force !== undefined ? force : !addMode;
+  document.getElementById('fab').classList.toggle('active', addMode);
+  document.getElementById('hint').style.display = addMode ? 'block' : 'none';
+  document.getElementById('fab').textContent = addMode ? '×' : '+';
+}
+document.getElementById('fab').onclick = ()=> toggleAddMode();
+
+/* ---------- Grouping helper ---------- */
+function groupDishes(dishes){
+  const map_ = new Map();
+  dishes.forEach(d=>{
+    const key = d.name.trim().toLowerCase();
+    if(!map_.has(key)) map_.set(key, { name: d.name.trim(), entries: [] });
+    map_.get(key).entries.push(d);
+  });
+  return Array.from(map_.values()).map(g=>{
+    const avgR = g.entries.reduce((s,e)=>s+e.rating,0)/g.entries.length;
+    const spent = g.entries.reduce((s,e)=> s + (typeof e.price==='number'?e.price:0), 0);
+    const lastDate = g.entries.reduce((m,e)=> e.date && e.date>m ? e.date : m, '');
+    return { name: g.name, entries: g.entries, count: g.entries.length, avgRating: avgR, totalSpent: spent, lastDate };
+  });
+}
+
+/* ---------- Sheet: place detail ---------- */
+function openSheet(placeId){
+  currentPlaceId = placeId;
+  const place = data.places.find(p=>p.id===placeId);
+  if(!place) return;
+  document.getElementById('sheetTitle').textContent = place.name;
+  document.getElementById('sheetType').textContent = place.type || 'Place';
+  const a = avg(place.dishes);
+  const spent = place.dishes.reduce((s,d)=> s + (typeof d.price==='number'?d.price:0), 0);
+  document.getElementById('sheetSub').textContent = a===null
+    ? 'No dishes rated yet'
+    : `${place.dishes.length} visit${place.dishes.length>1?'s':''} logged · avg ${a.toFixed(1)}/5${spent>0?` · ¥${spent} spent`:''}`;
+  renderDishList(place);
+  document.getElementById('sheet').classList.add('open');
+  document.getElementById('rankPanel').classList.remove('open');
+  document.getElementById('settingsPanel').classList.remove('open');
+}
+function closeSheet(){ document.getElementById('sheet').classList.remove('open'); currentPlaceId = null; }
+document.getElementById('closeSheetBtn').onclick = closeSheet;
+
+function renderDishList(place){
+  const body = document.getElementById('sheetBody');
+  body.innerHTML = '';
+  const groups = groupDishes(place.dishes).sort((a,b)=>b.avgRating-a.avgRating);
+  if(groups.length === 0){
+    const e = document.createElement('div');
+    e.className = 'empty';
+    e.textContent = 'Nothing logged here yet.';
+    body.appendChild(e);
+  }
+  groups.forEach(g=>{
+    const det = document.createElement('details');
+    det.className = 'dish-group';
+    const summary = document.createElement('summary');
+    summary.innerHTML = `
+      <span class="chev">▶</span>
+      <span class="dish-group-name">${escapeHtml(g.name)}</span>
+      <span class="dish-group-count">${g.count>1?`×${g.count}`:''}</span>
+      <span class="dish-group-score" style="background:${ratingColor(g.avgRating)}">${g.avgRating.toFixed(1)}</span>`;
+    det.appendChild(summary);
+    g.entries.slice().sort((a,b)=> (b.date||'').localeCompare(a.date||'')).forEach(d=>{
+      const el = document.createElement('div');
+      el.className = 'dish';
+      const tags = [];
+      if(d.meal) tags.push(`<span class="chip">${escapeHtml(d.meal)}</span>`);
+      if(typeof d.price==='number') tags.push(`<span class="chip">${fmtPrice(d.price)}</span>`);
+      if(d.profile) tags.push(`<span class="chip profile">${escapeHtml(d.profile)}</span>`);
+      el.innerHTML = `
+        <div class="dish-top">
+          <span class="dish-date">${fmtDate(d.date)}</span>
+          <div class="dish-score" style="background:${ratingColor(d.rating)}">${d.rating}/5</div>
+        </div>
+        ${d.photo ? `<img src="${d.photo}" data-photo data-full="${d.photo}" style="width:100%;max-height:160px;object-fit:cover;border-radius:8px;cursor:pointer;" />` : ''}
+        ${tags.length ? `<div class="dish-tags">${tags.join('')}</div>` : ''}
+        ${d.comment ? `<div class="dish-comment">${escapeHtml(d.comment)}</div>` : ''}
+        <div class="dish-actions">
+          <button data-edit="${d.id}">Edit</button>
+          <button data-del="${d.id}">Delete</button>
+        </div>`;
+      det.appendChild(el);
+    });
+    const again = document.createElement('button');
+    again.className = 'add-again-btn';
+    const lastEntry = g.entries.slice().sort((a,b)=> (b.date||'').localeCompare(a.date||''))[0];
+    again.textContent = `+ Log "${g.name}" again`;
+    again.onclick = (ev)=>{ ev.preventDefault(); showDishForm(place, null, { name: g.name, meal: lastEntry.meal, price: lastEntry.price }); };
+    det.appendChild(again);
+    body.appendChild(det);
+  });
+  const addBtn = document.createElement('button');
+  addBtn.className = 'add-dish-btn';
+  addBtn.textContent = '+ Log a new dish';
+  addBtn.onclick = ()=> showDishForm(place, null, null);
+  body.appendChild(addBtn);
+
+  body.querySelectorAll('[data-edit]').forEach(b=>{
+    b.onclick = ()=> showDishForm(place, place.dishes.find(d=>d.id===b.dataset.edit), null);
+  });
+  body.querySelectorAll('[data-del]').forEach(b=>{
+    b.onclick = ()=>{
+      place.dishes = place.dishes.filter(d=>d.id!==b.dataset.del);
+      saveData(); renderAllMarkers(); openSheet(place.id);
+    };
+  });
+  body.querySelectorAll('[data-photo]').forEach(img=>{
+    img.onclick = ()=> openModal(`<div class="modal-title">Photo</div><img src="${img.dataset.full}" style="width:100%;border-radius:12px;margin-top:8px;" />`);
+  });
+}
+
+/* Resize an image file down to a small JPEG data URL so it doesn't blow up storage */
+function resizeImageFile(file, maxDim, quality){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const img = new Image();
+      img.onload = ()=>{
+        let w = img.width, h = img.height;
+        if(w > h && w > maxDim){ h = Math.round(h*maxDim/w); w = maxDim; }
+        else if(h > maxDim){ w = Math.round(w*maxDim/h); h = maxDim; }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function showDishForm(place, dish, prefill){
+  const body = document.getElementById('sheetBody');
+  const isEdit = !!dish;
+  const rating = dish ? dish.rating : 4;
+  const activeProfile = data.activeProfile || 'Me';
+  const nameVal = dish ? dish.name : (prefill && prefill.name ? prefill.name : '');
+  const mealVal = dish ? dish.meal : (prefill ? prefill.meal : '');
+  const priceVal = dish ? dish.price : (prefill ? prefill.price : null);
+  let pendingPhoto = dish ? (dish.photo || null) : null;
+  const mealOptions = ['<option value="">No meal tag</option>'].concat(
+    MEAL_TAGS.map(m=>`<option value="${m}" ${mealVal===m?'selected':''}>${m}</option>`)
+  ).join('');
+  body.innerHTML = `
+    <div class="form">
+      <label>Dish name</label>
+      <input id="dishName" value="${escapeHtml(nameVal)}" placeholder="e.g. Chicken katsu bowl" />
+      <label>Rating</label>
+      <div class="stars" id="starsRow"></div>
+      <div class="form-row">
+        <div>
+          <label>Meal tag</label>
+          <select id="dishMeal">${mealOptions}</select>
+        </div>
+        <div>
+          <label>Price (¥)</label>
+          <input id="dishPrice" type="number" min="0" step="0.5" placeholder="e.g. 12" value="${typeof priceVal==='number'?priceVal:''}" />
+        </div>
+      </div>
+      <label>Notes (optional)</label>
+      <textarea id="dishComment" placeholder="How was it? Would you get it again?">${dish?escapeHtml(dish.comment||''):''}</textarea>
+      <label>Photo (optional)</label>
+      <input id="dishPhotoFile" type="file" accept="image/*" capture="environment" />
+      <div id="photoPreviewWrap" style="margin-top:8px;"></div>
+      <div class="logging-as">Logging as: ${escapeHtml(dish?dish.profile||activeProfile:activeProfile)}</div>
+      <div class="form-actions">
+        <button class="btn secondary" id="cancelDish">Cancel</button>
+        <button class="btn primary" id="saveDish">${isEdit?'Save changes':'Add dish'}</button>
+      </div>
+    </div>`;
+  function renderPhotoPreview(){
+    const wrap = document.getElementById('photoPreviewWrap');
+    if(pendingPhoto){
+      wrap.innerHTML = `<div style="display:flex; align-items:center; gap:10px;">
+        <img src="${pendingPhoto}" style="width:64px;height:64px;object-fit:cover;border-radius:8px;" />
+        <button class="ghost-btn" id="removePhotoBtn" type="button">Remove photo</button>
+      </div>`;
+      document.getElementById('removePhotoBtn').onclick = ()=>{ pendingPhoto = null; renderPhotoPreview(); };
+    } else {
+      wrap.innerHTML = '';
+    }
+  }
+  renderPhotoPreview();
+  document.getElementById('dishPhotoFile').addEventListener('change', async (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    try{
+      pendingPhoto = await resizeImageFile(file, 700, 0.65);
+      renderPhotoPreview();
+    }catch(err){
+      toast("Couldn't read that photo");
+    }
+  });
+  let current = rating;
+  const starsRow = document.getElementById('starsRow');
+  function drawStars(){
+    starsRow.innerHTML = '';
+    for(let i=1;i<=5;i++){
+      const s = document.createElement('span');
+      s.className = 'star' + (i<=current ? ' on':'');
+      s.textContent = '★';
+      s.onclick = ()=>{ current = i; drawStars(); };
+      starsRow.appendChild(s);
+    }
+  }
+  drawStars();
+  document.getElementById('cancelDish').onclick = ()=> renderDishList(place);
+  document.getElementById('saveDish').onclick = ()=>{
+    const name = document.getElementById('dishName').value.trim();
+    if(!name){ toast('Give the dish a name'); return; }
+    const comment = document.getElementById('dishComment').value.trim();
+    const meal = document.getElementById('dishMeal').value;
+    const priceRaw = document.getElementById('dishPrice').value;
+    const price = priceRaw === '' ? null : parseFloat(priceRaw);
+    if(isEdit){
+      dish.name = name; dish.rating = current; dish.comment = comment; dish.meal = meal; dish.price = price; dish.photo = pendingPhoto;
+    } else {
+      place.dishes.push({ id: uid(), name, rating: current, comment, meal, price, photo: pendingPhoto, profile: activeProfile, date: new Date().toISOString() });
+    }
+    saveData(); renderAllMarkers(); openSheet(place.id);
+  };
+}
+
+document.getElementById('deletePlaceBtn').onclick = ()=>{
+  if(!currentPlaceId) return;
+  const place = data.places.find(p=>p.id===currentPlaceId);
+  if(!place) return;
+  openModal(`
+    <div class="modal-title">Delete "${escapeHtml(place.name)}"?</div>
+    <div class="form">
+      <p style="font-size:13px;color:#4b555b;">This removes the pin and all ${place.dishes.length} visit${place.dishes.length===1?'':'s'} logged there. This can't be undone.</p>
+      <div class="form-actions">
+        <button class="btn secondary" id="cancelDel">Cancel</button>
+        <button class="btn danger" id="confirmDel">Delete</button>
+      </div>
+    </div>
+  `);
+  document.getElementById('cancelDel').onclick = closeModal;
+  document.getElementById('confirmDel').onclick = ()=>{
+    data.places = data.places.filter(p=>p.id!==currentPlaceId);
+    saveData(); renderAllMarkers(); closeModal(); closeSheet();
+  };
+};
+
+/* ---------- Rankings panel ---------- */
+function populateFilterOptions(){
+  const fMeal = document.getElementById('fMeal');
+  const fType = document.getElementById('fType');
+  const fPrice = document.getElementById('fPrice');
+  MEAL_TAGS.forEach(m=>{ const o = document.createElement('option'); o.value=m; o.textContent=m; fMeal.appendChild(o); });
+  PLACE_TYPES.forEach(t=>{ const o = document.createElement('option'); o.value=t; o.textContent=t; fType.appendChild(o); });
+  PRICE_RANGES.forEach((r,i)=>{ const o = document.createElement('option'); o.value=i; o.textContent=r.label; fPrice.appendChild(o); });
+}
+function populateProfileFilter(){
+  const fProfile = document.getElementById('fProfile');
+  const current = fProfile.value;
+  fProfile.innerHTML = '<option value="">Anyone</option>' + data.profiles.map(p=>`<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+  fProfile.value = data.profiles.includes(current) ? current : '';
+}
+function globalStats(){
+  let totalVisits = 0, ratingSum = 0, spentTotal = 0;
+  const uniqueNames = new Set();
+  data.places.forEach(p=> p.dishes.forEach(d=>{
+    totalVisits++; ratingSum += d.rating; uniqueNames.add(d.name.trim().toLowerCase());
+    if(typeof d.price==='number') spentTotal += d.price;
+  }));
+  return {
+    places: data.places.length,
+    visits: totalVisits,
+    uniqueDishes: uniqueNames.size,
+    avgRating: totalVisits ? (ratingSum/totalVisits) : null,
+    spentTotal
+  };
+}
+function renderStatStrip(){
+  const s = globalStats();
+  const strip = document.getElementById('statStrip');
+  strip.innerHTML = `
+    <div class="stat-pill"><div class="num">${s.places}</div><div class="lbl">PLACES</div></div>
+    <div class="stat-pill"><div class="num">${s.visits}</div><div class="lbl">VISITS LOGGED</div></div>
+    <div class="stat-pill"><div class="num">${s.uniqueDishes}</div><div class="lbl">UNIQUE DISHES</div></div>
+    <div class="stat-pill"><div class="num">${s.avgRating!==null?s.avgRating.toFixed(1):'–'}</div><div class="lbl">AVG RATING</div></div>
+    <div class="stat-pill"><div class="num">¥${s.spentTotal}</div><div class="lbl">TOTAL SPENT</div></div>`;
+}
+function openRankPanel(){
+  closeSheet();
+  document.getElementById('settingsPanel').classList.remove('open');
+  populateProfileFilter();
+  renderStatStrip();
+  renderRankList();
+  document.getElementById('rankPanel').classList.add('open');
+}
+function renderRankList(){
+  const list = document.getElementById('rankList');
+  const minRating = parseFloat(document.getElementById('fRating').value) || 0;
+  const mealFilter = document.getElementById('fMeal').value;
+  const typeFilter = document.getElementById('fType').value;
+  const priceIdx = document.getElementById('fPrice').value;
+  const profileFilter = document.getElementById('fProfile').value;
+  const sortBy = document.getElementById('fSort').value;
+  const priceRange = priceIdx !== '' ? PRICE_RANGES[priceIdx] : null;
+
+  const instances = [];
+  data.places.forEach(p=>{
+    if(typeFilter && p.type !== typeFilter) return;
+    p.dishes.forEach(d=>{
+      if(d.rating < minRating) return;
+      if(mealFilter && d.meal !== mealFilter) return;
+      if(profileFilter && d.profile !== profileFilter) return;
+      if(priceRange){
+        if(typeof d.price !== 'number') return;
+        if(d.price < priceRange.min || d.price >= priceRange.max) return;
+      }
+      instances.push({...d, placeName:p.name, placeId:p.id});
+    });
+  });
+
+  // place-level visit totals (independent of dish-name grouping, respects place-type/profile/meal filters lightly via full place dish list)
+  const placeVisitTotals = {};
+  data.places.forEach(p=>{ placeVisitTotals[p.id] = p.dishes.length; });
+
+  // group by place+dish for display, respecting filtered instance set
+  const groupMap = new Map();
+  instances.forEach(d=>{
+    const key = d.placeId+'::'+d.name.trim().toLowerCase();
+    if(!groupMap.has(key)) groupMap.set(key, { name:d.name.trim(), placeName:d.placeName, placeId:d.placeId, entries:[] });
+    groupMap.get(key).entries.push(d);
+  });
+  let groups = Array.from(groupMap.values()).map(g=>{
+    const priced = g.entries.filter(e=> typeof e.price === 'number');
+    const minP = priced.length ? Math.min(...priced.map(e=>e.price)) : null;
+    const maxP = priced.length ? Math.max(...priced.map(e=>e.price)) : null;
+    return {
+      ...g,
+      count: g.entries.length,
+      avgRating: g.entries.reduce((s,e)=>s+e.rating,0)/g.entries.length,
+      lastDate: g.entries.reduce((m,e)=> e.date && e.date>m ? e.date : m, ''),
+      priceLabel: minP===null ? '' : (minP===maxP ? `¥${minP}` : `¥${minP}–${maxP}`),
+      placeTotalVisits: placeVisitTotals[g.placeId] || g.count
+    };
+  });
+
+  if(sortBy === 'times') groups.sort((a,b)=> b.count - a.count || b.avgRating - a.avgRating);
+  else if(sortBy === 'recent') groups.sort((a,b)=> (b.lastDate||'').localeCompare(a.lastDate||''));
+  else groups.sort((a,b)=> b.avgRating - a.avgRating);
+
+  list.innerHTML = '';
+  if(groups.length === 0){
+    list.innerHTML = '<div class="empty">No dishes match — log a few, or loosen the filters.</div>';
+  }
+  groups.forEach(g=>{
+    const row = document.createElement('div');
+    row.className = 'rank-row';
+    row.innerHTML = `
+      <div class="rank-score" style="background:${ratingColor(g.avgRating)}">${g.avgRating.toFixed(1)}</div>
+      <div class="rank-info">
+        <div class="rank-dish">${escapeHtml(g.name)} ${g.priceLabel?`<span class="chip">${g.priceLabel}</span>`:''}</div>
+        <div class="rank-place">${escapeHtml(g.placeName)} · logged ${g.count}× here · ${g.placeTotalVisits} visit${g.placeTotalVisits===1?'':'s'} total at this place</div>
+      </div>
+      <div class="rank-count">${g.count>1?`×${g.count}`:''}</div>`;
+    row.onclick = ()=>{
+      closeRankPanel();
+      const place = data.places.find(p=>p.id===g.placeId);
+      map.flyTo([place.lat, place.lng], 17);
+      openSheet(g.placeId);
+    };
+    list.appendChild(row);
+  });
+}
+function closeRankPanel(){ document.getElementById('rankPanel').classList.remove('open'); }
+['fSort','fRating','fMeal','fType','fPrice','fProfile'].forEach(id=>{
+  document.getElementById(id).addEventListener('change', renderRankList);
+});
+document.getElementById('rankBtn').onclick = openRankPanel;
+document.getElementById('closeRank').onclick = closeRankPanel;
+
+/* ---------- Settings / backup ---------- */
+document.getElementById('settingsBtn').onclick = ()=>{
+  closeSheet();
+  document.getElementById('rankPanel').classList.remove('open');
+  document.getElementById('mapTilerKeyInput').value = data.mapTilerKey || '';
+  renderProfileList();
+  updateStorageUsage();
+  document.getElementById('settingsPanel').classList.add('open');
+};
+document.getElementById('closeSettings').onclick = ()=> document.getElementById('settingsPanel').classList.remove('open');
+document.getElementById('saveMapTilerKey').onclick = ()=>{
+  const key = document.getElementById('mapTilerKeyInput').value.trim();
+  data.mapTilerKey = key || null;
+  saveData(); setupBaseLayer();
+  if(key) toast('Key saved — trying it now');
+  else toast('Cleared — back to OpenStreetMap');
+};
+
+document.getElementById('exportBtn').onclick = ()=>{
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0,10);
+  a.href = url; a.download = `campus-eats-backup-${stamp}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+  toast('Backup downloaded');
+};
+document.getElementById('importBtn').onclick = ()=> document.getElementById('importFile').click();
+document.getElementById('importFile').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = async ()=>{
+    try{
+      const parsed = JSON.parse(reader.result);
+      if(!parsed.places || !Array.isArray(parsed.places)) throw new Error('bad file');
+      data = Object.assign({center: START_LOCATION, zoom:17, places:[], mapTilerKey:null, profiles:['Me'], activeProfile:'Me'}, parsed);
+      await saveData();
+      renderAllMarkers();
+      refreshProfileBtn();
+      map.setView([data.center.lat, data.center.lng], data.zoom || 17);
+      document.getElementById('settingsPanel').classList.remove('open');
+      toast('Backup restored');
+    }catch(err){
+      toast("That file doesn't look like a valid backup");
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
+
+function goHome(){
+  const h = data.homeLocation || START_LOCATION;
+  map.setView([h.lat, h.lng], h.zoom || 17);
+  toast('Back at the starting location');
+}
+document.getElementById('homeBtn').onclick = goHome;
+document.getElementById('homeBtn2').onclick = ()=>{ goHome(); document.getElementById('settingsPanel').classList.remove('open'); };
+document.getElementById('setHomeBtn').onclick = ()=>{
+  const c = map.getCenter();
+  data.homeLocation = { lat: c.lat, lng: c.lng, zoom: map.getZoom() };
+  saveData();
+  toast('This spot is now your starting location');
+};
+
+function updateStorageUsage(){
+  try{
+    const bytes = new Blob([JSON.stringify(data)]).size;
+    const kb = (bytes/1024).toFixed(0);
+    const limitKb = 5000; // typical conservative localStorage ceiling
+    const pct = Math.min(100, Math.round((bytes/1024/limitKb)*100));
+    document.getElementById('storageUsageDesc').textContent = `~${kb} KB used${window.storage ? '' : ` (roughly ${pct}% of a typical browser limit)`}. Photos are the biggest contributor — export a backup occasionally.`;
+  }catch(e){
+    document.getElementById('storageUsageDesc').textContent = 'Unable to estimate.';
+  }
+}
+
+/* ---------- Location search ---------- */
+async function runSearch(){
+  const q = document.getElementById('locSearch').value.trim();
+  if(!q) return;
+  toast('Searching…');
+  try{
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`);
+    const results = await res.json();
+    if(results && results.length){
+      const {lat, lon} = results[0];
+      map.setView([parseFloat(lat), parseFloat(lon)], 16);
+      toast('Found it');
+    } else {
+      toast('No results — try a different search');
+    }
+  }catch(err){
+    toast("Search isn't available right now — pan the map by hand, or use the home button");
+  }
+}
+document.getElementById('searchGo').onclick = runSearch;
+document.getElementById('locSearch').addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter'){ e.preventDefault(); runSearch(); }
+});
+
+/* ---------- Boot ---------- */
+(async function(){
+  populateFilterOptions();
+  if(!window.storage){
+    try{
+      const testKey = '__campus_eats_test__';
+      localStorage.setItem(testKey, '1'); localStorage.removeItem(testKey);
+    }catch(e){
+      showStorageBanner("This browser is blocking local storage (common in private/incognito mode) — entries won't be saved between visits.");
+    }
+  }
+  await loadData();
+  if(!data.profiles || !data.profiles.length){ data.profiles = ['Me']; data.activeProfile = 'Me'; }
+  if(!data.activeProfile) data.activeProfile = data.profiles[0];
+  refreshProfileBtn();
+  initMap();
+})();
+</script>
+</body>
+</html>
