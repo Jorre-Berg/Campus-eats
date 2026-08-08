@@ -338,13 +338,6 @@
     <div class="settings-item" id="storageUsageRow">
       <div><div class="label">Storage used</div><div class="desc" id="storageUsageDesc">Calculating…</div></div>
     </div>
-    <div class="settings-item" style="flex-direction:column; align-items:stretch;">
-      <div style="margin-bottom:8px;"><div class="label">English map labels</div><div class="desc">Paste a free MapTiler API key to show streets & places in English with full zoom. Get one at cloud.maptiler.com/account/keys (no card needed). This only works once the app is hosted on its own URL, not inside a Claude chat preview.</div></div>
-      <div style="display:flex; gap:8px;">
-        <input id="mapTilerKeyInput" placeholder="Paste MapTiler API key" style="flex:1; border:1px solid var(--line); border-radius:8px; padding:9px 10px; font-family:'IBM Plex Mono'; font-size:13px;" />
-        <button class="ghost-btn" id="saveMapTilerKey">Save</button>
-      </div>
-    </div>
   </div>
 </div>
 
@@ -355,9 +348,6 @@
 <div class="toast" id="toast"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="https://cdn.maptiler.com/maptiler-sdk-js/v3.0.0/maptiler-sdk.umd.min.js"></script>
-<link href="https://cdn.maptiler.com/maptiler-sdk-js/v3.0.0/maptiler-sdk.css" rel="stylesheet" />
-<script src="https://cdn.maptiler.com/leaflet-maptilersdk/v3.0.0/leaflet-maptilersdk.js"></script>
 <script>
 const STORAGE_KEY = 'campus-eats-data-v3';
 // Best estimate for Fudan Beiyuan international student dormitory (57 Wudong Rd),
@@ -372,7 +362,7 @@ const PRICE_RANGES = [
   {label:'¥50+', min:50, max:Infinity}
 ];
 
-let data = { center: START_LOCATION, zoom: 17, places: [], mapTilerKey: null, profiles: ['Me'], activeProfile: 'Me', homeLocation: null };
+let data = { center: START_LOCATION, zoom: 17, places: [], profiles: ['Me'], activeProfile: 'Me', homeLocation: null };
 let map, addMode = false, currentPlaceId = null;
 const markers = {};
 
@@ -524,36 +514,6 @@ function osmLayer(){
 }
 function setupBaseLayer(){
   if(baseLayer){ map.removeLayer(baseLayer); baseLayer = null; }
-  const key = data.mapTilerKey;
-  if(key){
-    if(window.L && L.maptiler && L.maptiler.maptilerLayer){
-      try{
-        const lang = (L.MaptilerLanguage && L.MaptilerLanguage.ENGLISH) ? L.MaptilerLanguage.ENGLISH : 'en';
-        baseLayer = L.maptiler.maptilerLayer({ apiKey: key, language: lang }).addTo(map);
-        let ready = false;
-        if(typeof baseLayer.on === 'function'){
-          baseLayer.on('ready', ()=>{ ready = true; hideStorageBanner(); console.log('MapTiler layer: ready fired'); });
-        }
-        setTimeout(()=>{
-          if(!ready){
-            console.warn('MapTiler layer never fired "ready" within 6s — something failed silently.');
-            showStorageBanner('English map is stuck loading. Open your browser console (F12 → Console tab on a computer) and check for red errors mentioning "maptiler" or "webgl" — send me exactly what it says.');
-          }
-        }, 6000);
-        return;
-      }catch(e){
-        console.error('MapTiler layer failed:', e);
-        toast("Couldn't load the English map — using OpenStreetMap instead");
-      }
-    } else {
-      const inIframe = (function(){ try{ return window.self !== window.top; }catch(e){ return true; } })();
-      if(inIframe){
-        toast("English map can't load inside this preview (script restrictions) — it'll work once this file is hosted on its own URL.");
-      } else {
-        toast("The map script from cdn.maptiler.com didn't load — try a private/incognito tab or a different browser, in case an ad-blocker or privacy extension is blocking that domain.");
-      }
-    }
-  }
   baseLayer = osmLayer().addTo(map);
 }
 function initMap(){
@@ -1108,19 +1068,11 @@ document.getElementById('closeRank').onclick = closeRankPanel;
 document.getElementById('settingsBtn').onclick = ()=>{
   closeSheet();
   document.getElementById('rankPanel').classList.remove('open');
-  document.getElementById('mapTilerKeyInput').value = data.mapTilerKey || '';
   renderProfileList();
   updateStorageUsage();
   document.getElementById('settingsPanel').classList.add('open');
 };
 document.getElementById('closeSettings').onclick = ()=> document.getElementById('settingsPanel').classList.remove('open');
-document.getElementById('saveMapTilerKey').onclick = ()=>{
-  const key = document.getElementById('mapTilerKeyInput').value.trim();
-  data.mapTilerKey = key || null;
-  saveData(); setupBaseLayer();
-  if(key) toast('Key saved — trying it now');
-  else toast('Cleared — back to OpenStreetMap');
-};
 
 document.getElementById('exportBtn').onclick = ()=>{
   const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
@@ -1141,7 +1093,7 @@ document.getElementById('importFile').addEventListener('change', (e)=>{
     try{
       const parsed = JSON.parse(reader.result);
       if(!parsed.places || !Array.isArray(parsed.places)) throw new Error('bad file');
-      data = Object.assign({center: START_LOCATION, zoom:17, places:[], mapTilerKey:null, profiles:['Me'], activeProfile:'Me'}, parsed);
+      data = Object.assign({center: START_LOCATION, zoom:17, places:[], profiles:['Me'], activeProfile:'Me'}, parsed);
       await saveData();
       renderAllMarkers();
       refreshProfileBtn();
