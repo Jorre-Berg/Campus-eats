@@ -67,6 +67,14 @@
   .fab.active{background:var(--rust); color:var(--paper); transform:rotate(45deg);}
   .fab:active{transform:scale(0.93);}
   .fab.active:active{transform:rotate(45deg) scale(0.93);}
+  .fab-left{
+    position:absolute; left:16px; bottom:22px; z-index:500;
+    width:52px;height:52px;border-radius:50%;
+    background:var(--paper); border:none; color:var(--ink);
+    box-shadow:0 6px 16px rgba(0,0,0,0.35);
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  .fab-left:active{transform:scale(0.93);}
 
   .hint{
     position:absolute; left:50%; bottom:92px; transform:translateX(-50%);
@@ -246,6 +254,9 @@
 </div>
 
 <div class="hint" id="hint" style="display:none;">Tap anywhere on the map to drop a pin there</div>
+<button class="fab-left" id="nearMeBtn" title="Find something nearby">
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#16232A" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+</button>
 <button class="fab" id="fab">+</button>
 
 <div class="sheet" id="sheet">
@@ -338,6 +349,10 @@
     <div class="settings-item" id="storageUsageRow">
       <div><div class="label">Storage used</div><div class="desc" id="storageUsageDesc">Calculating…</div></div>
     </div>
+    <div class="settings-item">
+      <div><div class="label">Trash</div><div class="desc" id="trashDesc">Deleted places & dishes, kept for 7 days</div></div>
+      <button class="ghost-btn" id="openTrashBtn">View</button>
+    </div>
   </div>
 </div>
 
@@ -362,7 +377,14 @@ const PRICE_RANGES = [
   {label:'¥50+', min:50, max:Infinity}
 ];
 
-let data = { center: START_LOCATION, zoom: 17, places: [], profiles: ['Me'], activeProfile: 'Me', homeLocation: null };
+let data = { center: START_LOCATION, zoom: 17, places: [], profiles: ['Me'], activeProfile: 'Me', homeLocation: null, trash: { places: [], dishes: [] } };
+const TRASH_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+function purgeOldTrash(){
+  if(!data.trash) { data.trash = { places: [], dishes: [] }; return; }
+  const cutoff = Date.now() - TRASH_RETENTION_MS;
+  data.trash.places = (data.trash.places||[]).filter(p => new Date(p.deletedAt).getTime() > cutoff);
+  data.trash.dishes = (data.trash.dishes||[]).filter(d => new Date(d.deletedAt).getTime() > cutoff);
+}
 let map, addMode = false, currentPlaceId = null;
 const markers = {};
 
@@ -677,13 +699,24 @@ function renderDishList(place){
   addBtn.onclick = ()=> showDishForm(place, null, null);
   body.appendChild(addBtn);
 
+  const trayBtn = document.createElement('button');
+  trayBtn.className = 'add-dish-btn';
+  trayBtn.style.marginTop = '8px';
+  trayBtn.textContent = '+ Log a whole tray (multiple dishes)';
+  trayBtn.onclick = ()=> openTrayForm(place);
+  body.appendChild(trayBtn);
+
   body.querySelectorAll('[data-edit]').forEach(b=>{
     b.onclick = ()=> showDishForm(place, place.dishes.find(d=>d.id===b.dataset.edit), null);
   });
   body.querySelectorAll('[data-del]').forEach(b=>{
     b.onclick = ()=>{
-      place.dishes = place.dishes.filter(d=>d.id!==b.dataset.del);
+      const idx = place.dishes.findIndex(d=>d.id===b.dataset.del);
+      if(idx === -1) return;
+      const [removed] = place.dishes.splice(idx, 1);
+      data.trash.dishes.push({ ...removed, placeId: place.id, placeName: place.name, deletedAt: new Date().toISOString() });
       saveData(); renderAllMarkers(); openSheet(place.id);
+      toast('Moved to trash — undo in Settings within 7 days');
     };
   });
   body.querySelectorAll('[data-photo]').forEach(img=>{
@@ -712,6 +745,100 @@ function resizeImageFile(file, maxDim, quality){
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+function openTrayForm(place){
+  const activeProfile = data.activeProfile || 'Me';
+  let rows = [{id:uid(), name:'', rating:4, price:''}, {id:uid(), name:'', rating:4, price:''}];
+  const mealOptions = ['<option value="">No meal tag</option>'].concat(
+    MEAL_TAGS.map(m=>`<option value="${m}">${m}</option>`)
+  ).join('');
+  function rowHtml(r, idx){
+    return `
+      <div class="form-row" data-row="${r.id}" style="align-items:flex-end; margin-bottom:8px;">
+        <div style="flex:2;">
+          <label>Item ${idx+1}</label>
+          <input class="tray-name" data-row="${r.id}" placeholder="e.g. Rice" value="${escapeHtml(r.name)}" />
+        </div>
+        <div style="flex:1;">
+          <label>Rating</label>
+          <select class="tray-rating" data-row="${r.id}">
+            ${[5,4,3,2,1].map(n=>`<option value="${n}" ${r.rating===n?'selected':''}>${n} ★</option>`).join('')}
+          </select>
+        </div>
+        <div style="flex:1;">
+          <label>Price (¥)</label>
+          <input class="tray-price" data-row="${r.id}" type="number" min="0" step="0.5" placeholder="split" value="${r.price}" />
+        </div>
+        ${idx>1 ? `<button type="button" class="ghost-btn tray-remove" data-row="${r.id}" style="margin-bottom:9px;">✕</button>` : ''}
+      </div>`;
+  }
+  function render(){
+    openModal(`
+      <div class="modal-title">Log a tray</div>
+      <div class="form">
+        <div id="trayRows">${rows.map(rowHtml).join('')}</div>
+        <button type="button" class="ghost-btn" id="trayAddRow">+ Add another item</button>
+        <label style="margin-top:14px;">Shared meal tag</label>
+        <select id="trayMeal">${mealOptions}</select>
+        <label>Total tray price (¥) — optional, splits across items left blank above</label>
+        <input id="trayTotalPrice" type="number" min="0" step="0.5" placeholder="e.g. 18" />
+        <label>Notes (optional, applied to each item)</label>
+        <textarea id="trayComment" placeholder="Any thoughts on the combo overall?"></textarea>
+        <div class="logging-as">Logging as: ${escapeHtml(activeProfile)}</div>
+        <div class="form-actions">
+          <button class="btn secondary" id="cancelTray">Cancel</button>
+          <button class="btn primary" id="saveTray">Log ${rows.length} items</button>
+        </div>
+      </div>
+    `);
+    document.querySelectorAll('.tray-name').forEach(el=> el.oninput = ()=>{
+      const r = rows.find(x=>x.id===el.dataset.row); if(r) r.name = el.value;
+    });
+    document.querySelectorAll('.tray-rating').forEach(el=> el.onchange = ()=>{
+      const r = rows.find(x=>x.id===el.dataset.row); if(r) r.rating = parseInt(el.value);
+    });
+    document.querySelectorAll('.tray-price').forEach(el=> el.oninput = ()=>{
+      const r = rows.find(x=>x.id===el.dataset.row); if(r) r.price = el.value;
+    });
+    document.querySelectorAll('.tray-remove').forEach(el=> el.onclick = ()=>{
+      rows = rows.filter(x=>x.id!==el.dataset.row);
+      render();
+    });
+    document.getElementById('trayAddRow').onclick = ()=>{
+      if(rows.length >= 6){ toast('That\'s enough items for one tray!'); return; }
+      rows.push({id:uid(), name:'', rating:4, price:''});
+      render();
+    };
+    document.getElementById('cancelTray').onclick = closeModal;
+    document.getElementById('saveTray').onclick = ()=>{
+      const meal = document.getElementById('trayMeal').value;
+      const comment = document.getElementById('trayComment').value.trim();
+      const totalRaw = document.getElementById('trayTotalPrice').value;
+      const total = totalRaw === '' ? null : parseFloat(totalRaw);
+      const valid = rows.filter(r => r.name.trim());
+      if(valid.length === 0){ toast('Add at least one item name'); return; }
+      const explicit = valid.filter(r => r.price !== '' && !isNaN(parseFloat(r.price)));
+      const blank = valid.filter(r => r.price === '' || isNaN(parseFloat(r.price)));
+      let splitPrice = null;
+      if(total !== null && blank.length > 0){
+        const explicitSum = explicit.reduce((s,r)=> s+parseFloat(r.price), 0);
+        splitPrice = Math.round(((total - explicitSum) / blank.length) * 2) / 2; // nearest 0.5
+      }
+      const trayId = uid();
+      const now = new Date().toISOString();
+      valid.forEach(r=>{
+        const price = (r.price !== '' && !isNaN(parseFloat(r.price))) ? parseFloat(r.price) : (splitPrice !== null ? Math.max(0, splitPrice) : null);
+        place.dishes.push({
+          id: uid(), name: r.name.trim(), rating: r.rating, comment, meal,
+          price, photo: null, profile: activeProfile, date: now, trayId
+        });
+      });
+      saveData(); renderAllMarkers(); closeModal(); openSheet(place.id);
+      toast(`Logged ${valid.length} items from this tray`);
+    };
+  }
+  render();
 }
 
 function showDishForm(place, dish, prefill){
@@ -813,7 +940,7 @@ document.getElementById('deletePlaceBtn').onclick = ()=>{
   openModal(`
     <div class="modal-title">Delete "${escapeHtml(place.name)}"?</div>
     <div class="form">
-      <p style="font-size:13px;color:#4b555b;">This removes the pin and all ${place.dishes.length} visit${place.dishes.length===1?'':'s'} logged there. This can't be undone.</p>
+      <p style="font-size:13px;color:#4b555b;">This removes the pin and all ${place.dishes.length} visit${place.dishes.length===1?'':'s'} logged there. It'll sit in Trash for 7 days in case you change your mind.</p>
       <div class="form-actions">
         <button class="btn secondary" id="cancelDel">Cancel</button>
         <button class="btn danger" id="confirmDel">Delete</button>
@@ -823,7 +950,9 @@ document.getElementById('deletePlaceBtn').onclick = ()=>{
   document.getElementById('cancelDel').onclick = closeModal;
   document.getElementById('confirmDel').onclick = ()=>{
     data.places = data.places.filter(p=>p.id!==currentPlaceId);
+    data.trash.places.push({ ...place, deletedAt: new Date().toISOString() });
     saveData(); renderAllMarkers(); closeModal(); closeSheet();
+    toast('Moved to trash — undo in Settings within 7 days');
   };
 };
 
@@ -1093,7 +1222,8 @@ document.getElementById('importFile').addEventListener('change', (e)=>{
     try{
       const parsed = JSON.parse(reader.result);
       if(!parsed.places || !Array.isArray(parsed.places)) throw new Error('bad file');
-      data = Object.assign({center: START_LOCATION, zoom:17, places:[], profiles:['Me'], activeProfile:'Me'}, parsed);
+      data = Object.assign({center: START_LOCATION, zoom:17, places:[], profiles:['Me'], activeProfile:'Me', trash:{places:[],dishes:[]}}, parsed);
+      purgeOldTrash();
       await saveData();
       renderAllMarkers();
       refreshProfileBtn();
@@ -1107,6 +1237,90 @@ document.getElementById('importFile').addEventListener('change', (e)=>{
   reader.readAsText(file);
   e.target.value = '';
 });
+
+/* ---------- Near me (distance-aware suggestion) ---------- */
+function haversineMeters(lat1, lng1, lat2, lng2){
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2-lat1), dLng = toRad(lng2-lng1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function fmtDistance(m){
+  return m < 1000 ? `${Math.round(m)}m away` : `${(m/1000).toFixed(1)}km away`;
+}
+function findNearby(){
+  if(!navigator.geolocation){
+    toast("This browser doesn't support location — try a different browser.");
+    return;
+  }
+  toast('Finding your location…');
+  navigator.geolocation.getCurrentPosition(
+    (pos)=>{
+      const {latitude, longitude} = pos.coords;
+      const withRatings = data.places
+        .map(p=>({ place:p, avgRating: avg(p.dishes), dist: haversineMeters(latitude, longitude, p.lat, p.lng) }))
+        .filter(x => x.avgRating !== null);
+      if(withRatings.length === 0){
+        toast('No rated places yet — log a dish first so I have something to recommend.');
+        return;
+      }
+      const thresholds = [4, 3.5, 3, 0];
+      let candidates = [];
+      for(const t of thresholds){
+        candidates = withRatings.filter(x => x.avgRating >= t);
+        if(candidates.length) break;
+      }
+      candidates.sort((a,b)=> a.dist - b.dist);
+      const top = candidates[0];
+      const alternates = candidates.slice(1, 5);
+      openModal(`
+        <div class="modal-title">Nearby & worth it</div>
+        <div class="form">
+          <div style="background:var(--paper-dim); border-radius:12px; padding:14px; margin-top:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div style="font-family:'Space Grotesk'; font-weight:700; font-size:17px;">${escapeHtml(top.place.name)}</div>
+              <div class="dish-score" style="background:${ratingColor(top.avgRating)}">${top.avgRating.toFixed(1)}</div>
+            </div>
+            <div style="font-family:'IBM Plex Mono'; font-size:12px; color:var(--muted); margin-top:4px;">${fmtDistance(top.dist)}</div>
+          </div>
+          ${alternates.length ? `<label>Other good options nearby</label>` : ''}
+          ${alternates.map(a=>`
+            <div class="rank-row" data-open-place="${a.place.id}">
+              <div class="rank-score" style="background:${ratingColor(a.avgRating)}">${a.avgRating.toFixed(1)}</div>
+              <div class="rank-info">
+                <div class="rank-dish">${escapeHtml(a.place.name)}</div>
+                <div class="rank-place">${fmtDistance(a.dist)}</div>
+              </div>
+            </div>`).join('')}
+          <div class="form-actions">
+            <button class="btn secondary" id="closeNearby">Close</button>
+            <button class="btn primary" id="openTopNearby">Open "${escapeHtml(top.place.name)}"</button>
+          </div>
+        </div>
+      `);
+      document.getElementById('closeNearby').onclick = closeModal;
+      document.getElementById('openTopNearby').onclick = ()=>{
+        closeModal();
+        map.flyTo([top.place.lat, top.place.lng], 17);
+        openSheet(top.place.id);
+      };
+      document.querySelectorAll('[data-open-place]').forEach(row=>{
+        row.onclick = ()=>{
+          closeModal();
+          const place = data.places.find(p=>p.id===row.dataset.openPlace);
+          if(place){ map.flyTo([place.lat, place.lng], 17); openSheet(place.id); }
+        };
+      });
+    },
+    (err)=>{
+      if(err.code === err.PERMISSION_DENIED) toast('Location permission denied — enable it in your browser settings to use this.');
+      else toast("Couldn't get your location right now.");
+    },
+    { enableHighAccuracy: true, timeout: 8000 }
+  );
+}
+document.getElementById('nearMeBtn').onclick = findNearby;
 
 function goHome(){
   const h = data.homeLocation || START_LOCATION;
@@ -1132,7 +1346,86 @@ function updateStorageUsage(){
   }catch(e){
     document.getElementById('storageUsageDesc').textContent = 'Unable to estimate.';
   }
+  const trashCount = (data.trash.places||[]).length + (data.trash.dishes||[]).length;
+  document.getElementById('trashDesc').textContent = trashCount
+    ? `${trashCount} item${trashCount===1?'':'s'} deleted, kept for 7 days`
+    : 'Deleted places & dishes, kept for 7 days';
 }
+
+function daysLeft(deletedAt){
+  const ms = TRASH_RETENTION_MS - (Date.now() - new Date(deletedAt).getTime());
+  return Math.max(0, Math.ceil(ms / (24*60*60*1000)));
+}
+function openTrash(){
+  purgeOldTrash();
+  const places = data.trash.places||[];
+  const dishes = data.trash.dishes||[];
+  if(places.length===0 && dishes.length===0){
+    openModal(`<div class="modal-title">Trash</div><div class="empty">Nothing in the trash right now.</div><div class="form-actions"><button class="btn secondary" id="closeTrash">Close</button></div>`);
+    document.getElementById('closeTrash').onclick = closeModal;
+    return;
+  }
+  const placeRows = places.map(p=>`
+    <div class="profile-row">
+      <span class="pname">📍 ${escapeHtml(p.name)} <span class="chip">${p.dishes.length} dish${p.dishes.length===1?'':'es'}</span></span>
+      <span style="display:flex; gap:6px; align-items:center;">
+        <span style="font-size:10px; color:var(--muted); font-family:'IBM Plex Mono';">${daysLeft(p.deletedAt)}d left</span>
+        <button class="ghost-btn" data-restore-place="${p.id}">Restore</button>
+        <button class="ghost-btn" data-purge-place="${p.id}">Delete forever</button>
+      </span>
+    </div>`).join('');
+  const dishRows = dishes.map(d=>`
+    <div class="profile-row">
+      <span class="pname">🍽 ${escapeHtml(d.name)} <span class="chip">${escapeHtml(d.placeName||'unknown place')}</span></span>
+      <span style="display:flex; gap:6px; align-items:center;">
+        <span style="font-size:10px; color:var(--muted); font-family:'IBM Plex Mono';">${daysLeft(d.deletedAt)}d left</span>
+        <button class="ghost-btn" data-restore-dish="${d.id}">Restore</button>
+        <button class="ghost-btn" data-purge-dish="${d.id}">Delete forever</button>
+      </span>
+    </div>`).join('');
+  openModal(`
+    <div class="modal-title">Trash</div>
+    <div class="form">
+      ${places.length ? `<label>Places</label>${placeRows}` : ''}
+      ${dishes.length ? `<label>Dishes</label>${dishRows}` : ''}
+      <div class="form-actions"><button class="btn secondary" id="closeTrash">Close</button></div>
+    </div>
+  `);
+  document.getElementById('closeTrash').onclick = closeModal;
+  document.querySelectorAll('[data-restore-place]').forEach(b=> b.onclick = ()=>{
+    const id = b.dataset.restorePlace;
+    const idx = data.trash.places.findIndex(p=>p.id===id);
+    if(idx===-1) return;
+    const [p] = data.trash.places.splice(idx,1);
+    delete p.deletedAt;
+    data.places.push(p);
+    saveData(); renderAllMarkers(); toast('Place restored'); openTrash();
+  });
+  document.querySelectorAll('[data-purge-place]').forEach(b=> b.onclick = ()=>{
+    data.trash.places = data.trash.places.filter(p=>p.id!==b.dataset.purgePlace);
+    saveData(); toast('Permanently deleted'); openTrash();
+  });
+  document.querySelectorAll('[data-restore-dish]').forEach(b=> b.onclick = ()=>{
+    const id = b.dataset.restoreDish;
+    const idx = data.trash.dishes.findIndex(d=>d.id===id);
+    if(idx===-1) return;
+    const [d] = data.trash.dishes.splice(idx,1);
+    const place = data.places.find(p=>p.id===d.placeId);
+    if(!place){
+      toast("That dish's place no longer exists — can't restore");
+      data.trash.dishes.push(d);
+      return;
+    }
+    delete d.deletedAt; delete d.placeId; delete d.placeName;
+    place.dishes.push(d);
+    saveData(); renderAllMarkers(); toast('Dish restored'); openTrash();
+  });
+  document.querySelectorAll('[data-purge-dish]').forEach(b=> b.onclick = ()=>{
+    data.trash.dishes = data.trash.dishes.filter(d=>d.id!==b.dataset.purgeDish);
+    saveData(); toast('Permanently deleted'); openTrash();
+  });
+}
+document.getElementById('openTrashBtn').onclick = openTrash;
 
 /* ---------- Location search ---------- */
 async function runSearch(){
@@ -1172,6 +1465,7 @@ document.getElementById('locSearch').addEventListener('keydown', (e)=>{
   await loadData();
   if(!data.profiles || !data.profiles.length){ data.profiles = ['Me']; data.activeProfile = 'Me'; }
   if(!data.activeProfile) data.activeProfile = data.profiles[0];
+  purgeOldTrash();
   refreshProfileBtn();
   initMap();
 })();
