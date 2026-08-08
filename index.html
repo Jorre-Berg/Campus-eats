@@ -550,7 +550,12 @@ function setupBaseLayer(){
         toast("Couldn't load the English map — using OpenStreetMap instead");
       }
     } else {
-      toast("English map can't load inside this Claude preview (script restrictions) — it'll work once this file is hosted on its own URL.");
+      const inIframe = (function(){ try{ return window.self !== window.top; }catch(e){ return true; } })();
+      if(inIframe){
+        toast("English map can't load inside this preview (script restrictions) — it'll work once this file is hosted on its own URL.");
+      } else {
+        toast("The map script from cdn.maptiler.com didn't load — try a private/incognito tab or a different browser, in case an ad-blocker or privacy extension is blocking that domain.");
+      }
     }
   }
   baseLayer = osmLayer().addTo(map);
