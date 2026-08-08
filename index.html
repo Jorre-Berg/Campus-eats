@@ -529,21 +529,17 @@ function setupBaseLayer(){
     if(window.L && L.maptiler && L.maptiler.maptilerLayer){
       try{
         const lang = (L.MaptilerLanguage && L.MaptilerLanguage.ENGLISH) ? L.MaptilerLanguage.ENGLISH : 'en';
-        baseLayer = new L.maptiler.maptilerLayer({ apiKey: key, language: lang }).addTo(map);
-        if(baseLayer && typeof baseLayer.on === 'function'){
-          baseLayer.on('error', (e)=>{
-            console.error('MapTiler tile/auth error:', e);
-            let detail = 'unknown error';
-            try{
-              if(e && e.error){
-                if(e.error.status === 401 || e.error.status === 403) detail = `key rejected (HTTP ${e.error.status}) — check the key is correct and has no URL/domain restriction blocking this site`;
-                else if(e.error.message) detail = e.error.message;
-                else detail = JSON.stringify(e.error).slice(0,120);
-              }
-            }catch(_){}
-            showStorageBanner(`MapTiler error: ${detail}`);
-          });
+        baseLayer = L.maptiler.maptilerLayer({ apiKey: key, language: lang }).addTo(map);
+        let ready = false;
+        if(typeof baseLayer.on === 'function'){
+          baseLayer.on('ready', ()=>{ ready = true; hideStorageBanner(); console.log('MapTiler layer: ready fired'); });
         }
+        setTimeout(()=>{
+          if(!ready){
+            console.warn('MapTiler layer never fired "ready" within 6s — something failed silently.');
+            showStorageBanner('English map is stuck loading. Open your browser console (F12 → Console tab on a computer) and check for red errors mentioning "maptiler" or "webgl" — send me exactly what it says.');
+          }
+        }, 6000);
         return;
       }catch(e){
         console.error('MapTiler layer failed:', e);
