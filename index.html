@@ -190,6 +190,9 @@
   .profile-row{ display:flex; align-items:center; justify-content:space-between; padding:8px 0; }
   .profile-row .pname{ font-weight:600; font-size:13px; display:flex; align-items:center; gap:6px; }
   .profile-row .active-tag{ font-size:9px; font-family:'IBM Plex Mono'; background:var(--sage); color:var(--paper); padding:1px 6px; border-radius:5px; }
+  .active-tab-btn{ background:var(--ink) !important; color:var(--paper) !important; border-color:var(--ink) !important; }
+  #galleryGrid{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; padding:12px 0; }
+  #galleryGrid img{ width:100%; aspect-ratio:1; object-fit:cover; border-radius:8px; cursor:pointer; }
 
   .modal-overlay{
     position:absolute; inset:0; z-index:1000; background:rgba(22,35,42,0.5);
@@ -263,22 +266,39 @@
 
 <div class="panel" id="rankPanel">
   <div class="panel-head">
-    <h2>Rankings</h2>
+    <h2 id="rankPanelTitle">Rankings</h2>
     <button class="iconbtn" id="closeRank">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16232A" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>
   </div>
+  <div style="display:flex; gap:8px; padding:12px 18px 0;">
+    <button class="ghost-btn rank-tab active-tab-btn" data-tab="rankings">Rankings</button>
+    <button class="ghost-btn rank-tab" data-tab="photos">Photos</button>
+    <button class="ghost-btn rank-tab" data-tab="trends">Spending</button>
+  </div>
   <div class="panel-list">
-    <div class="stat-strip" id="statStrip"></div>
-    <div class="filters" id="filterRow">
-      <select id="fSort"><option value="rating">Sort: Rating</option><option value="times">Sort: Times eaten</option><option value="recent">Sort: Most recent</option></select>
-      <select id="fRating"><option value="0">Any rating</option><option value="4.5">4.5+</option><option value="4">4+</option><option value="3">3+</option><option value="2">2+</option></select>
-      <select id="fMeal"><option value="">Any meal tag</option></select>
-      <select id="fType"><option value="">Any place type</option></select>
-      <select id="fPrice"><option value="">Any price</option></select>
-      <select id="fProfile"><option value="">Anyone</option></select>
+    <div id="tabRankings">
+      <div class="stat-strip" id="statStrip"></div>
+      <div class="filters" id="filterRow">
+        <select id="fSort"><option value="rating">Sort: Rating</option><option value="times">Sort: Times eaten</option><option value="recent">Sort: Most recent</option></select>
+        <select id="fRating"><option value="0">Any rating</option><option value="4.5">4.5+</option><option value="4">4+</option><option value="3">3+</option><option value="2">2+</option></select>
+        <select id="fMeal"><option value="">Any meal tag</option></select>
+        <select id="fType"><option value="">Any place type</option></select>
+        <select id="fPrice"><option value="">Any price</option></select>
+        <select id="fProfile"><option value="">Anyone</option></select>
+      </div>
+      <div id="rankList"></div>
     </div>
-    <div id="rankList"></div>
+    <div id="tabPhotos" style="display:none;">
+      <div id="galleryGrid"></div>
+    </div>
+    <div id="tabTrends" style="display:none;">
+      <div style="display:flex; gap:8px; padding:10px 0;">
+        <button class="ghost-btn trend-period active-tab-btn" data-period="week">Weekly</button>
+        <button class="ghost-btn trend-period" data-period="month">Monthly</button>
+      </div>
+      <div id="trendChart"></div>
+    </div>
   </div>
 </div>
 
@@ -886,12 +906,117 @@ function renderStatStrip(){
     <div class="stat-pill"><div class="num">${s.avgRating!==null?s.avgRating.toFixed(1):'–'}</div><div class="lbl">AVG RATING</div></div>
     <div class="stat-pill"><div class="num">¥${s.spentTotal}</div><div class="lbl">TOTAL SPENT</div></div>`;
 }
+let currentRankTab = 'rankings';
+let currentTrendPeriod = 'week';
+function switchRankTab(tab){
+  currentRankTab = tab;
+  document.getElementById('tabRankings').style.display = tab==='rankings' ? '' : 'none';
+  document.getElementById('tabPhotos').style.display = tab==='photos' ? '' : 'none';
+  document.getElementById('tabTrends').style.display = tab==='trends' ? '' : 'none';
+  document.querySelectorAll('.rank-tab').forEach(b=> b.classList.toggle('active-tab-btn', b.dataset.tab===tab));
+  document.getElementById('rankPanelTitle').textContent = tab==='rankings' ? 'Rankings' : (tab==='photos' ? 'Photos' : 'Spending');
+  if(tab==='photos') renderGallery();
+  if(tab==='trends') renderTrends();
+}
+document.querySelectorAll('.rank-tab').forEach(b=> b.onclick = ()=> switchRankTab(b.dataset.tab));
+document.querySelectorAll('.trend-period').forEach(b=> b.onclick = ()=>{
+  currentTrendPeriod = b.dataset.period;
+  document.querySelectorAll('.trend-period').forEach(x=> x.classList.toggle('active-tab-btn', x===b));
+  renderTrends();
+});
+
+function renderGallery(){
+  const grid = document.getElementById('galleryGrid');
+  const items = [];
+  data.places.forEach(p=> p.dishes.forEach(d=>{ if(d.photo) items.push({...d, placeName:p.name, placeId:p.id}); }));
+  items.sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+  if(items.length === 0){
+    grid.innerHTML = '<div class="empty" style="grid-column:1/-1;">No photos yet — add one next time you log a dish, and they\'ll show up here to browse.</div>';
+    return;
+  }
+  grid.innerHTML = '';
+  items.forEach(it=>{
+    const img = document.createElement('img');
+    img.src = it.photo;
+    img.onclick = ()=> openGalleryDetail(it);
+    grid.appendChild(img);
+  });
+}
+function openGalleryDetail(it){
+  openModal(`
+    <div class="modal-title">${escapeHtml(it.name)}</div>
+    <img src="${it.photo}" style="width:100%;border-radius:12px;margin:10px 0;" />
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+      <div>
+        <div style="font-weight:600; font-size:15px;">${escapeHtml(it.placeName)}</div>
+        <div style="font-size:12px;color:var(--muted); font-family:'IBM Plex Mono';">${fmtDate(it.date)}${typeof it.price==='number'?` · ¥${it.price}`:''}</div>
+      </div>
+      <div class="dish-score" style="background:${ratingColor(it.rating)}">${it.rating}/5</div>
+    </div>
+    ${it.comment?`<div class="dish-comment" style="margin-top:10px;">${escapeHtml(it.comment)}</div>`:''}
+    <div class="form-actions">
+      <button class="btn secondary" id="closeGalleryDetail">Close</button>
+      <button class="btn primary" id="openPlaceFromGallery">Open place</button>
+    </div>
+  `);
+  document.getElementById('closeGalleryDetail').onclick = closeModal;
+  document.getElementById('openPlaceFromGallery').onclick = ()=>{
+    closeModal(); closeRankPanel();
+    const place = data.places.find(p=>p.id===it.placeId);
+    if(place){ map.flyTo([place.lat,place.lng],17); openSheet(it.placeId); }
+  };
+}
+
+function renderTrends(){
+  const buckets = {};
+  data.places.forEach(p=> p.dishes.forEach(d=>{
+    if(typeof d.price !== 'number' || !d.date) return;
+    const dt = new Date(d.date);
+    let key, label;
+    if(currentTrendPeriod === 'week'){
+      const monday = new Date(dt);
+      const dow = (dt.getDay()+6)%7;
+      monday.setDate(dt.getDate()-dow);
+      key = monday.toISOString().slice(0,10);
+      label = monday.toLocaleDateString(undefined,{month:'short',day:'numeric'});
+    } else {
+      key = dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0');
+      label = dt.toLocaleDateString(undefined,{month:'short',year:'2-digit'});
+    }
+    if(!buckets[key]) buckets[key] = {label, total:0};
+    buckets[key].total += d.price;
+  }));
+  const entries = Object.entries(buckets).sort((a,b)=> a[0].localeCompare(b[0])).slice(-12);
+  const chart = document.getElementById('trendChart');
+  if(entries.length === 0){
+    chart.innerHTML = '<div class="empty">No priced entries yet — add a price when logging a dish to see spending trends.</div>';
+    return;
+  }
+  const max = Math.max(1, ...entries.map(([,v])=>v.total));
+  const totalShown = entries.reduce((s,[,v])=>s+v.total,0);
+  chart.innerHTML = `
+    <div style="display:flex; align-items:flex-end; gap:6px; height:150px; padding:14px 4px 4px;">
+      ${entries.map(([,v])=>`
+        <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; gap:4px;">
+          <div style="font-family:'IBM Plex Mono'; font-size:9px; color:var(--muted);">¥${v.total}</div>
+          <div style="width:100%; background:var(--mustard); border-radius:4px 4px 0 0; height:${Math.max(4,(v.total/max)*90)}px;"></div>
+        </div>`).join('')}
+    </div>
+    <div style="display:flex; gap:6px; padding:0 4px;">
+      ${entries.map(([,v])=>`<div style="flex:1; text-align:center; font-size:9px; color:var(--muted); font-family:'IBM Plex Mono';">${v.label}</div>`).join('')}
+    </div>
+    <div style="text-align:center; font-family:'IBM Plex Mono'; font-size:12px; color:var(--muted); margin-top:12px; border-top:1px solid var(--line); padding-top:10px;">
+      ¥${totalShown} total across the last ${entries.length} ${currentTrendPeriod==='week'?'weeks':'months'}
+    </div>`;
+}
+
 function openRankPanel(){
   closeSheet();
   document.getElementById('settingsPanel').classList.remove('open');
   populateProfileFilter();
   renderStatStrip();
   renderRankList();
+  switchRankTab('rankings');
   document.getElementById('rankPanel').classList.add('open');
 }
 function renderRankList(){
