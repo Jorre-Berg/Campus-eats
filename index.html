@@ -88,6 +88,16 @@
     color:var(--paper); border:2.5px solid var(--paper); box-shadow:0 2px 6px rgba(0,0,0,0.4);
   }
   .badge.new{background:var(--muted);}
+  .you-are-here-dot{
+    width:16px; height:16px; border-radius:50%;
+    background:#3B82F6; border:3px solid #fff; box-shadow:0 0 0 rgba(59,130,246,0.5);
+    animation: pulseDot 2s infinite;
+  }
+  @keyframes pulseDot{
+    0% { box-shadow:0 0 0 0 rgba(59,130,246,0.5); }
+    70% { box-shadow:0 0 0 14px rgba(59,130,246,0); }
+    100% { box-shadow:0 0 0 0 rgba(59,130,246,0); }
+  }
 
   .sheet{
     position:absolute; left:0; right:0; bottom:0; z-index:900; background:var(--paper);
@@ -459,6 +469,7 @@ function openModal(html){
 function closeModal(){
   document.getElementById('modalOverlay').classList.remove('open');
   document.getElementById('modalBox').innerHTML = '';
+  stopLocationWatch();
 }
 document.getElementById('modalOverlay').addEventListener('click', (e)=>{ if(e.target.id === 'modalOverlay') closeModal(); });
 
@@ -553,6 +564,54 @@ function initMap(){
     saveData();
   });
   renderAllMarkers();
+}
+
+/* ---------- "You are here" tracking — only while the Near Me flow is open ---------- */
+let myLocationMarker = null, myAccuracyCircle = null, myLastCoords = null, locationWatchId = null, pendingLocationFix = null;
+function updateMyLocationMarker(lat, lng, accuracy){
+  myLastCoords = {lat, lng};
+  if(!myLocationMarker){
+    myLocationMarker = L.marker([lat,lng], {
+      icon: L.divIcon({ className:'', html:'<div class="you-are-here-dot"></div>', iconSize:[16,16], iconAnchor:[8,8] }),
+      zIndexOffset: 1000, interactive:false
+    }).addTo(map);
+  } else {
+    myLocationMarker.setLatLng([lat,lng]);
+  }
+  if(typeof accuracy === 'number'){
+    if(!myAccuracyCircle){
+      myAccuracyCircle = L.circle([lat,lng], { radius: accuracy, color:'#3B82F6', weight:1, fillColor:'#3B82F6', fillOpacity:0.1, interactive:false }).addTo(map);
+    } else {
+      myAccuracyCircle.setLatLng([lat,lng]);
+      myAccuracyCircle.setRadius(accuracy);
+    }
+  }
+  if(pendingLocationFix){ const cb = pendingLocationFix; pendingLocationFix = null; cb(lat, lng); }
+}
+function startLocationWatch(){
+  if(!navigator.geolocation){
+    if(pendingLocationFix){ toast("This browser doesn't support location — try a different browser."); pendingLocationFix = null; }
+    return;
+  }
+  if(locationWatchId !== null) return;
+  locationWatchId = navigator.geolocation.watchPosition(
+    (pos)=> updateMyLocationMarker(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
+    (err)=>{
+      if(pendingLocationFix){
+        if(err.code === err.PERMISSION_DENIED) toast('Location permission denied — enable it in your browser settings to use this.');
+        else toast("Couldn't get your location right now.");
+        pendingLocationFix = null;
+      }
+    },
+    { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+  );
+}
+function stopLocationWatch(){
+  if(locationWatchId !== null){ navigator.geolocation.clearWatch(locationWatchId); locationWatchId = null; }
+  if(myLocationMarker){ map.removeLayer(myLocationMarker); myLocationMarker = null; }
+  if(myAccuracyCircle){ map.removeLayer(myAccuracyCircle); myAccuracyCircle = null; }
+  myLastCoords = null;
+  pendingLocationFix = null;
 }
 function markerIcon(place){
   const a = avg(place.dishes);
@@ -1250,14 +1309,7 @@ function fmtDistance(m){
   return m < 1000 ? `${Math.round(m)}m away` : `${(m/1000).toFixed(1)}km away`;
 }
 function findNearby(){
-  if(!navigator.geolocation){
-    toast("This browser doesn't support location — try a different browser.");
-    return;
-  }
-  toast('Finding your location…');
-  navigator.geolocation.getCurrentPosition(
-    (pos)=>{
-      const {latitude, longitude} = pos.coords;
+  const proceed = (latitude, longitude)=>{
       const withRatings = data.places
         .map(p=>({ place:p, avgRating: avg(p.dishes), dist: haversineMeters(latitude, longitude, p.lat, p.lng) }))
         .filter(x => x.avgRating !== null);
@@ -1312,13 +1364,10 @@ function findNearby(){
           if(place){ map.flyTo([place.lat, place.lng], 17); openSheet(place.id); }
         };
       });
-    },
-    (err)=>{
-      if(err.code === err.PERMISSION_DENIED) toast('Location permission denied — enable it in your browser settings to use this.');
-      else toast("Couldn't get your location right now.");
-    },
-    { enableHighAccuracy: true, timeout: 8000 }
-  );
+  };
+  toast('Finding your location…');
+  pendingLocationFix = proceed;
+  startLocationWatch();
 }
 document.getElementById('nearMeBtn').onclick = findNearby;
 
@@ -1472,3 +1521,4 @@ document.getElementById('locSearch').addEventListener('keydown', (e)=>{
 </script>
 </body>
 </html>
+
